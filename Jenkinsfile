@@ -1,41 +1,72 @@
 pipeline{
     agent any
-    stages{
-        stage('git checkout'){
-            steps{
-                checkout scmGit(branches: [[name: '*/main']], extensions: [], userRemoteConfigs: [[url: 'https://github.com/ycetindil/Jenkins-Tetris.git']])
-            }
-        }
-        stage('build docker image'){
-            steps{
-                sh 'docker build -t ycetindil.azurecr.io/tetris .'
-            }
-        }
-        stage('push image'){
-            steps{
-                withCredentials([usernamePassword(credentialsId: 'ACR', passwordVariable: 'password', usernameVariable: 'username')]) {
-                sh 'docker login -u ${username} -p ${password} ycetindil.azurecr.io'
-                sh 'docker push ycetindil.azurecr.io/tetris'
+
+    environment {
+        PIPELINE_NAME = "tetris"
+        TF_FOLDER     = "infra-tf"
+    }
+
+    stages {
+        stage('Create infrastructure for the App') {
+            steps {
+                sh 'az login --identity'
+                dir("/var/lib/jenkins/workspace/${PIPELINE_NAME}/${TF_FOLDER}") {
+                    echo 'Creating Infrastructure for the App'
+                    sh 'terraform init'
+                    sh 'terraform apply --auto-approve'
                 }
             }
         }
-        stage('install Azure CLI'){
-            steps{
-                sh '''
-                apk add py3-pip
-                apk add gcc musl-dev python3-dev libffi-dev openssl-dev cargo make
-                pip install --upgrade pip
-                pip install azure-cli
-                '''
+
+        stage('Login to ACR') {
+            steps {
+                dir("/var/lib/jenkins/workspace/${PIPELINE_NAME}/${TF_FOLDER}") {
+                    echo 'Injecting Terraform outputs'
+                    script {
+                        env.ACR_NAME = sh(script: 'terraform output -raw acr_name', returnStdout:true).trim()
+                        env.ACR_PASSWORD = sh(script: 'terraform output -raw acr_password', returnStdout:true).trim()
+                    }
+                }
+                echo 'Logging into ACR'
+                sh "docker login -u ${ACR_NAME} -p ${ACR_PASSWORD} ${ACR_NAME}.azurecr.io"
             }
         }
-        stage('deploy web app'){
-            steps{
-                withCredentials([azureServicePrincipal('AZURE_SERVICE_PRINCIPAL')]) {
-                sh 'az login --service-principal -u ${AZURE_CLIENT_ID} -p ${AZURE_CLIENT_SECRET} --tenant ${AZURE_TENANT_ID}'
+
+        stage('Build Docker image') {
+            steps {
+                echo 'Building Docker image'
+                sh "docker build -t ${ACR_NAME}.azurecr.io/tetris ."
+            }
+        }
+
+        stage('Push Docker image to ACR') {
+            steps {
+                echo 'Pushing Docker image to ACR'
+                sh "docker push ${ACR_NAME}.azurecr.io/tetris"
+            }
+        }
+
+        stage('Deploy web app') {
+            steps {
+                dir("/var/lib/jenkins/workspace/${PIPELINE_NAME}/${TF_FOLDER}") {
+                    echo 'Injecting Terraform outputs'
+                    script {
+                        env.RG_NAME = sh(script: 'terraform output -raw rg_name', returnStdout:true).trim()
+                        env.WEB_APP_NAME = sh(script: 'terraform output -raw web_app_name', returnStdout:true).trim()
+                    }
                 }
-                withCredentials([usernamePassword(credentialsId: 'ACR', passwordVariable: 'password', usernameVariable: 'username')]) {
-                sh 'az webapp config container set --name ycetindil --resource-group Tetris --docker-custom-image-name ycetindil.azurecr.io/tetris:latest --docker-registry-server-url https://ycetindil.azurecr.io --docker-registry-server-user ${username} --docker-registry-server-password ${password}'
+                echo 'Configuring the web app'
+                sh "az webapp config container set --name ${ACR_NAME} --resource-group ${RG_NAME} --docker-custom-image-name ${ACR_NAME}.azurecr.io/tetris:latest --docker-registry-server-url https://${ACR_NAME}.azurecr.io --docker-registry-server-user ${ACR_NAME} --docker-registry-server-password ${ACR_PASSWORD}"
+            }
+        }
+
+        stage('Destroy the Infrastructure') {
+            steps {
+                timeout(time:5, unit:'DAYS'){
+                    input message:'Do you want to destroy the infrastructure?'
+                }
+                dir("/var/lib/jenkins/workspace/${PIPELINE_NAME}/${TF_FOLDER}") {
+                    sh 'terraform destroy --auto-approve'
                 }
             }
         }
