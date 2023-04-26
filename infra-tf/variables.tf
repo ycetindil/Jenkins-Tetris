@@ -7,7 +7,7 @@ variable "location" {
 }
 
 variable "acr_name" {
-  default     = "ycetindil"
+  default = "ycetindil"
 }
 
 variable "web_app_name" {
