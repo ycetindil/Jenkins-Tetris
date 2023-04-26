@@ -62,7 +62,7 @@ pipeline {
                     }
                 }
                 echo 'Configuring the web app'
-                sh "az webapp config container set --name ${ACR_NAME} --resource-group ${RG_NAME} --docker-custom-image-name ${ACR_NAME}.azurecr.io/tetris:latest --docker-registry-server-url https://${ACR_NAME}.azurecr.io --docker-registry-server-user ${ACR_NAME} --docker-registry-server-password ${ACR_PASSWORD}"
+                sh "az webapp config container set --name ${WEB_APP_NAME} --resource-group ${RG_NAME} --docker-custom-image-name ${ACR_NAME}.azurecr.io/tetris:latest --docker-registry-server-url https://${ACR_NAME}.azurecr.io --docker-registry-server-user ${ACR_NAME} --docker-registry-server-password ${ACR_PASSWORD}"
             }
         }
 
