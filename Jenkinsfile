@@ -1,4 +1,4 @@
-pipeline{
+pipeline {
     agent any
 
     environment {
@@ -7,9 +7,15 @@ pipeline{
     }
 
     stages {
+        stage('Login to Azure') {
+            steps {
+                echo 'Logging into Azure'
+                sh 'az login --identity'
+            }
+        }
+
         stage('Create infrastructure for the App') {
             steps {
-                sh 'az login --identity'
                 dir("/var/lib/jenkins/workspace/${PIPELINE_NAME}/${TF_FOLDER}") {
                     echo 'Creating Infrastructure for the App'
                     sh 'terraform init'
